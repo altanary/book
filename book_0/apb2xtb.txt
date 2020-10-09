@@ -1,0 +1,87 @@
+//
+// Created by         :pisces
+// Filename           :apb2xtb.v
+// Author             :pisces(RDC)
+// Created On         :2020-10-05 20:22
+// Last Modified      : 
+// Update Count       :2020-10-05 20:22
+// Description        :
+//                     
+//                     
+//=======================================================================
+module apb2xtb(
+    input                clk,
+    input                reset_n,
+    input                strobe,
+    input                PSEL,
+    input                PENABLE,
+    input         [31:0] PADDR,
+    input         [31:0] PWDATA,
+    input                PWRITE,
+    output        [31:0] PRDATA,
+    output               PREADY,
+    output               PSLVERR,
+
+    output logic         En,
+    output logic         Wr,
+    output logic [31:0]  Addr,
+    output logic [3:0]   ByteEn,
+    output logic [31:0]  WrData,
+    input        [31:0]  RdData,
+    input                Busy
+);
+
+parameter  IDLE = 2'h0;
+parameter  SETUP = 2'h1;
+parameter  ENABLE = 2'h2;
+
+reg [1:0]  state;
+reg [1:0]  nxt_state;
+reg        EnDly;
+reg        WrSetup;
+always @ ( posedge clk or negedge reset_n )
+begin
+    if( !reset_n ) begin
+        state[1:0] <= #`RD 2'h0; 
+    end
+    else begin
+        state[1:0] <= #`RD nxt_state[1:0];
+    end
+end
+
+always @ ( * )
+begin
+    nxt_state[1:0] = state[1:0];
+    case( state[1:0] )
+    IDLE:  nxt_state[1:0] = PSEL && !PENABLE         ? SETUP ://capture the request from mclk
+                                                       IDLE;
+    SETUP: nxt_state[1:0] = strobe ? PSEL && PENABLE ? ENABLE://check the state at sclk
+                                                       SETUP :
+                                                       SETUP;
+    ENABLE:nxt_state[1:0] = EnDly ? Busy             ? ENABLE:
+                                    PSEL && !PENABLE ? SETUP :
+                                                       IDLE  :
+                                                       ENABLE;
+    default:nxt_state[1:0] = IDLE;
+    endcase  
+end
+
+always @ ( posedge clk or negedge reset_n )
+begin
+    if( !reset_n ) begin
+        EnDly <= #`RD 1'b0; 
+    end
+    else if(strobe)begin
+        EnDly <= #`RD En;
+    end
+end
+
+assign En = (state[1:0] == ENABLE&&nxt_state[1:0]==state[1:0]);
+assign Wr = (state[1:0] == ENABLE&&nxt_state[1:0]==state[1:0]) && PWRITE;
+assign Addr[31:0] = PADDR[31:0];
+assign ByteEn[3:0] = 4'hF;
+assign WrData[31:0] = PWDATA[31:0];
+assign PRDATA[31:0] = RdData[31:0];
+assign PREADY = (state[1:0]==ENABLE) ? EnDly&&!Busy : !(state[1:0]==SETUP);
+assign PSLVERR = 1'b0;
+endmodule
