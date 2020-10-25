@@ -1,0 +1,97 @@
+//
+// Created by         :pisces
+// Filename           :xtb_trans.v
+// Author             :pisces(RDC)
+// Created On         :2020-10-05 20:22
+// Last Modified      : 
+// Update Count       :2020-10-05 20:22
+// Description        :
+//                     
+//                     
+//=======================================================================
+module xtb_trans(
+    input                clk,
+    input                reset_n,
+    input                Strobe,
+    input                Mst_En,
+    input                Mst_Wr,
+    input         [31:0] Mst_Addr,
+    output        [3:0]  Mst_ByteEn,
+    input         [31:0] Mst_Wdata,
+    output        [31:0] Mst_Data,
+    output               Mst_Busy,
+
+    output logic         Slv_En,
+    output logic         Slv_Wr,
+    output logic [31:0]  Slv_Addr,
+    output logic [3:0]   Slv_ByteEn,
+    output logic [31:0]  Slv_Wdata,
+    input        [31:0]  Slv_Data,
+    input                Slv_Busy
+);
+
+parameter  IDLE = 2'h0;
+parameter  READ = 2'h1;
+parameter  WRITE = 2'h2;
+
+reg [1:0]  state;
+reg [1:0]  nxt_state;
+reg        Mst_EnDly;
+reg        Slv_EnDly;
+
+always @ ( posedge clk or negedge reset_n )
+begin
+    if( !reset_n ) begin
+        Mst_EnDly <= #`RD 1'b0; 
+    end
+    else begin
+        Mst_EnDly <= #`RD Mst_En;
+    end
+end
+
+always @ ( posedge clk or negedge reset_n )
+begin
+    if( !reset_n ) begin
+        Slv_EnDly <= #`RD 1'b0; 
+    end
+    else if(Strobe)begin
+        Slv_EnDly <= #`RD Slv_En;
+    end
+end
+
+always @ ( posedge clk or negedge reset_n )
+begin
+    if( !reset_n ) begin
+        state[1:0] <= #`RD 2'h0; 
+    end
+    else begin
+        state[1:0] <= #`RD nxt_state[1:0];
+    end
+end
+
+always @ ( * )
+begin
+    nxt_state[1:0] = state[1:0];
+    case( state[1:0] )
+    IDLE: nxt_state[1:0] = Strobe && Mst_En &&!Mst_Wr ? READ ://check the state at sclk
+                           Strobe && Mst_En && Mst_Wr ? WRITE://check the state at sclk
+                                                        IDLE;
+    READ: nxt_state[1:0] = Slv_EnDly ? Slv_Busy       ? READ :
+                                                        IDLE :
+                                                        READ;
+    WRITE:nxt_state[1:0] = Slv_EnDly ? Slv_Busy       ? WRITE:
+                                                        IDLE :
+                                                        WRITE;
+    default:nxt_state[1:0] = IDLE;
+    endcase  
+end
+
+assign Slv_En         = (state[1:0]!=IDLE&&nxt_state[1:0]==state[1:0]);
+assign Slv_Wr         = (state[1:0]==WRITE&&nxt_state[1:0]==state[1:0]);
+assign Slv_Addr[31:0] = Mst_Addr[31:0];
+assign Slv_ByteEn[3:0]= Mst_ByteEn[3:0];
+assign Slv_Wdata[31:0]= Mst_Wdata[31:0];
+
+assign Mst_Data[31:0] = Slv_Data[31:0];
+assign Mst_Busy       = (state[1:0]!=IDLE) ? nxt_state[1:0]!=state[1:0] ? 1'b0 : 1'b1 : Mst_EnDly&&(state[1:0]==IDLE);
+endmodule
