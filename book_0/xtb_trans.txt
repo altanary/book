@@ -1,14 +1,3 @@
-//
-// Created by         :pisces
-// Filename           :xtb_trans.v
-// Author             :pisces(RDC)
-// Created On         :2020-10-05 20:22
-// Last Modified      : 
-// Update Count       :2020-10-05 20:22
-// Description        :
-//                     
-//                     
-//=======================================================================
 module xtb_trans(
     input                clk,
     input                reset_n,
@@ -30,32 +19,41 @@ module xtb_trans(
     input                Slv_Busy
 );
 
-parameter  IDLE = 2'h0;
-parameter  READ = 2'h1;
+parameter  IDLE  = 2'h0;
+parameter  READ  = 2'h1;
 parameter  WRITE = 2'h2;
 
 reg [1:0]  state;
 reg [1:0]  nxt_state;
-reg        Mst_EnDly;
-reg        Slv_EnDly;
+reg        Mst_En_Dly;
+reg [31:0] Mst_Addr_Dly;
+reg [31:0] Mst_ByteEn_Dly;
+reg [31:0] Mst_Wdata_Dly;
+reg        Slv_En_Dly;
 
 always @ ( posedge clk or negedge reset_n )
 begin
     if( !reset_n ) begin
-        Mst_EnDly <= #`RD 1'b0; 
+        Mst_En_Dly <= #`RD 1'b0; 
+        Mst_Addr_Dly[31:0]  <= #`RD 32'h0;
+        Mst_ByteEn_Dly[3:0] <= #`RD 4'h0;
+        Mst_Wdata_Dly[31:0] <= #`RD 32'h0;
     end
     else begin
-        Mst_EnDly <= #`RD Mst_En;
+        Mst_En_Dly <= #`RD Mst_En;
+        Mst_Addr_Dly[31:0]  <= #`RD Mst_Addr[31:0]; 
+        Mst_ByteEn_Dly[3:0] <= #`RD Mst_ByteEn[3:0]; 
+        Mst_Wdata_Dly[31:0] <= #`RD Mst_Wdata[31:0]; 
     end
 end
 
 always @ ( posedge clk or negedge reset_n )
 begin
     if( !reset_n ) begin
-        Slv_EnDly <= #`RD 1'b0; 
+        Slv_En_Dly <= #`RD 1'b0; 
     end
     else if(Strobe)begin
-        Slv_EnDly <= #`RD Slv_En;
+        Slv_En_Dly <= #`RD Slv_En;
     end
 end
 
@@ -76,10 +74,10 @@ begin
     IDLE: nxt_state[1:0] = Strobe && Mst_En &&!Mst_Wr ? READ ://check the state at sclk
                            Strobe && Mst_En && Mst_Wr ? WRITE://check the state at sclk
                                                         IDLE;
-    READ: nxt_state[1:0] = Slv_EnDly ? Slv_Busy       ? READ :
+    READ: nxt_state[1:0] = Slv_En_Dly ? Slv_Busy      ? READ :
                                                         IDLE :
                                                         READ;
-    WRITE:nxt_state[1:0] = Slv_EnDly ? Slv_Busy       ? WRITE:
+    WRITE:nxt_state[1:0] = Slv_En_Dly ? Slv_Busy      ? WRITE:
                                                         IDLE :
                                                         WRITE;
     default:nxt_state[1:0] = IDLE;
@@ -88,10 +86,10 @@ end
 
 assign Slv_En         = (state[1:0]!=IDLE&&nxt_state[1:0]==state[1:0]);
 assign Slv_Wr         = (state[1:0]==WRITE&&nxt_state[1:0]==state[1:0]);
-assign Slv_Addr[31:0] = Mst_Addr[31:0];
-assign Slv_ByteEn[3:0]= Mst_ByteEn[3:0];
-assign Slv_Wdata[31:0]= Mst_Wdata[31:0];
+assign Slv_Addr[31:0] = Mst_Addr_Dly[31:0];
+assign Slv_ByteEn[3:0]= Mst_ByteEn_Dly[3:0];
+assign Slv_Wdata[31:0]= Mst_Wdata_Dly[31:0];
 
 assign Mst_Data[31:0] = Slv_Data[31:0];
-assign Mst_Busy       = (state[1:0]!=IDLE) ? nxt_state[1:0]!=state[1:0] ? 1'b0 : 1'b1 : Mst_EnDly&&(state[1:0]==IDLE);
+assign Mst_Busy       = (state[1:0]!=IDLE) ? !Slv_En_Dly||Slv_Busy : Mst_En_Dly&&(state[1:0]==IDLE);
 endmodule
